@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Finish Lab</title>
+<style>
+/* Layout: instrument-panel stack. Video camera + line sensor side by side, the composed photo full width below, notes last. */
+:root{
+  --bg:#eceef1; --panel:#ffffff; --ink:#15181d; --muted:#5b6370; --line:#d4d8df; --chip:#f2f3f5;
+  --accent:#f2c230; --accent-ink:#1b1600; --accent-soft:#fff4cc;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-data: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1014; --panel:#171a20; --ink:#e7e9ed; --muted:#98a1ae; --line:#2a2f38; --chip:#1f232b;
+    --accent:#f2c230; --accent-ink:#1b1600; --accent-soft:#3a3012; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1014; --panel:#171a20; --ink:#e7e9ed; --muted:#98a1ae; --line:#2a2f38; --chip:#1f232b;
+  --accent:#f2c230; --accent-ink:#1b1600; --accent-soft:#3a3012; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg); color:var(--ink); font:15px/1.5 var(--font-ui)}
+.wrap{max-width:1240px; margin:0 auto; padding-inline:16px; padding-block:24px 56px; display:grid; gap:20px}
+header h1{font-size:1.9rem; line-height:1.1; margin:0 0 6px; letter-spacing:-.02em; text-wrap:balance}
+header h1 span{background:var(--accent); color:var(--accent-ink); padding:0 .25em; border-radius:3px}
+header p{margin:0; color:var(--muted); max-width:70ch}
+a{color:inherit; text-decoration-color:var(--accent); text-decoration-thickness:2px; text-underline-offset:2px}
+
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0}
+.panel-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:10px}
+.step{font:700 .72rem var(--font-data); background:var(--ink); color:var(--panel); border-radius:4px; padding:1px 6px}
+.panel-head h2{font-size:1rem; margin:0}
+.panel-head p{margin:0; color:var(--muted); font-size:.85rem}
+
+.stage{display:grid; grid-template-columns:minmax(0,1fr) 150px; gap:16px}
+.stage > .panel{display:flex; flex-direction:column}
+#video{display:block; width:100%; height:auto; border-radius:6px; background:#000; cursor:pointer}
+.sensor-box{flex:1; min-height:0; display:flex; flex-direction:column; gap:8px}
+.sensor-frame{position:relative; flex:1; min-height:160px}
+#sensor{position:absolute; inset:0; width:100%; height:100%; border-radius:6px; background:#000; image-rendering:pixelated}
+.sensor-box small{color:var(--muted); font-size:.78rem; line-height:1.35}
+
+.controls{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px}
+button{font:600 .85rem var(--font-ui); color:var(--ink); background:var(--chip); border:1px solid var(--line);
+  border-radius:7px; padding:7px 11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px}
+button:hover{border-color:var(--muted)}
+button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+button svg{width:16px; height:16px; fill:currentColor}
+button.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent; min-width:92px; justify-content:center}
+#scrub{flex:1; min-width:140px; accent-color:var(--accent)}
+.clock{font-family:var(--font-data); font-variant-numeric:tabular-nums; display:flex; flex-direction:column; align-items:flex-end; line-height:1.15}
+.clock b{font-size:1.15rem}
+.clock small{color:var(--muted); font-size:.75rem}
+.settings{display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:.85rem}
+.settings label{display:inline-flex; align-items:center; gap:8px}
+.settings input[type=range]{width:130px; accent-color:var(--accent)}
+.settings output{font-family:var(--font-data); font-variant-numeric:tabular-nums; min-width:3.6em}
+select{font:inherit; color:var(--ink); background:var(--chip); border:1px solid var(--line); border-radius:6px; padding:4px 6px}
+input[type=checkbox]{accent-color:var(--accent); width:16px; height:16px}
+
+.scroller{overflow-x:auto; border-radius:6px; background:var(--chip)}
+#comp,#axis{display:block}
+#comp{cursor:crosshair}
+.photo-foot{display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 16px; margin-top:8px; font-size:.82rem; color:var(--muted)}
+#cursorRead{font-family:var(--font-data); color:var(--ink)}
+
+table{width:100%; border-collapse:collapse; font-size:.86rem}
+.table-wrap{overflow-x:auto; margin-top:12px}
+th{font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); text-align:left; font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap}
+td{padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap}
+td.num{font-family:var(--font-data); font-variant-numeric:tabular-nums}
+.sw{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px}
+.pos{font-weight:700}
+.pending{color:var(--muted)}
+
+.notes{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:16px}
+.notes h3{margin:0 0 8px; font-size:1rem}
+.notes ol,.notes ul{margin:0; padding-left:1.2em; display:grid; gap:8px; max-width:68ch}
+.notes li{color:var(--ink)}
+.notes li span{color:var(--muted)}
+#map{display:block; width:100%; height:auto; border-radius:6px; margin-top:10px}
+
+@media (max-width:760px){
+  .stage{grid-template-columns:minmax(0,1fr) 84px}
+  .notes{grid-template-columns:minmax(0,1fr)}
+  header h1{font-size:1.5rem}
+}
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Photo <span>Finish</span> Lab</h1>
+    <p>A finish camera does not take a picture of the scene. It watches one thin line and records it over and over, then lays those slices side by side. Play the sprint below, or step through it one capture at a time. Based on <a href="https://en.brujulabike.com/how-photo-finish-technology-works-and-why-bicycles-look-distorted/" target="_blank" rel="noopener">this explanation from Brújula Bike</a>.</p>
+  </header>
+
+  <section class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="step">1</span><h2>What a normal video camera sees</h2>
+        <p>The yellow frame marks the only part the finish camera records.</p>
+      </div>
+      <canvas id="video" width="960" height="380" aria-label="Side view of three cyclists sprinting across the finish line" tabindex="0"></canvas>
+
+      <div class="controls">
+        <button id="restart" title="Back to start (Home)" aria-label="Back to start"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button id="back" title="Previous capture (←, Shift+← for 10)" aria-label="Previous capture"><svg viewBox="0 0 24 24"><path d="M15 5v14L4 12zM17 5h2v14h-2z"/></svg></button>
+        <button id="play" class="primary" title="Play / pause (Space)"><svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4v16l13-8z"/></svg><span id="playLabel">Play</span></button>
+        <button id="fwd" title="Next capture (→, Shift+→ for 10)" aria-label="Next capture"><svg viewBox="0 0 24 24"><path d="M9 5v14l11-7zM5 5h2v14H5z"/></svg></button>
+        <input type="range" id="scrub" min="0" max="100" value="0" aria-label="Capture number">
+        <div class="clock"><b id="clock">0:00.000</b><small id="frameRead">capture 0 / 0</small></div>
+      </div>
+
+      <div class="settings">
+        <label for="width">Scan line width <input type="range" id="width" min="2" max="20" value="8"><output id="widthOut">8 px</output></label>
+        <label for="speed">Playback
+          <select id="speed">
+            <option value="6">6 captures/s</option>
+            <option value="12">12 captures/s</option>
+            <option value="24" selected>24 captures/s</option>
+            <option value="48">48 captures/s</option>
+          </select>
+        </label>
+        <label for="showSlit"><input type="checkbox" id="showSlit" checked> Mark scan line</label>
+        <label for="dim"><input type="checkbox" id="dim"> Dim everything else</label>
+        <button id="newRace">New sprint</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><span class="step">2</span><h2>Line sensor</h2></div>
+      <div class="sensor-box">
+        <div class="sensor-frame"><canvas id="sensor" width="64" height="380" aria-label="Magnified view of the current scan line"></canvas></div>
+        <small id="sensorNote">The current capture, magnified. Each one is added to the photo below.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <span class="step">3</span><h2>The photo finish</h2>
+      <p>Horizontal axis is time, not distance. Time runs right to left, so the first wheel across is furthest right.</p>
+    </div>
+    <div class="scroller" id="scroller">
+      <canvas id="comp" width="800" height="380" aria-label="Composed photo finish image" tabindex="0"></canvas>
+      <canvas id="axis" width="800" height="34" aria-hidden="true"></canvas>
+    </div>
+    <div class="photo-foot">
+      <span>Hover the photo to read the time under the cursor. Click to pin it and jump the video to that moment.</span>
+      <span id="cursorRead">cursor —</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pos</th><th>No.</th><th>Rider</th><th>Speed</th><th>Moves per capture</th><th>Length in photo</th><th>Finish</th><th>Gap</th></tr></thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="notes">
+    <div class="panel">
+      <h3>How the picture gets made</h3>
+      <ol>
+        <li>The camera sits exactly in line with the finish line and looks across the track. <span>Its sensor is a single column of pixels, so it sees the line and nothing either side of it.</span></li>
+        <li>It reads that column again and again. <span>Real systems take 10,000 or more readings per second, each 1 pixel wide. Here it is 200 per second and each reading is several pixels wide so you can see it.</span></li>
+        <li>Each new reading is placed next to the previous one. <span>A rider shows up in the photo only while some part of them is on the line, and the photo's horizontal axis becomes a clock.</span></li>
+        <li>Judges place a cursor on the leading edge of the front tyre and read the time straight off the image.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3>Why the bikes look wrong</h3>
+      <ul>
+        <li>The backdrop and the track never move, so every reading repeats the same pixels. <span>They turn into horizontal streaks.</span></li>
+        <li>Width in the photo is how long something spent on the line. <span>A faster rider looks shorter. Drag the scan line width to stretch or squash everyone.</span></li>
+        <li>The top of a wheel moves at twice the bike's speed and the bottom is momentarily still. <span>So spokes curve and the wheel leans.</span></li>
+      </ul>
+      <canvas id="map" width="360" height="180" aria-label="Top-down diagram of the camera, finish line and riders"></canvas>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---- World constants (scene pixels) ----
+  const SW = 960, SH = 380, LINE_X = 600;
+  const DT = 0.005;          // seconds between captures
+  const PX_PER_M = 100;      // scene scale
+  const WB = 100, R = 34, FRONT = WB + R; // bike geometry in rider units
+  const LANES = [ {g:262, s:.74}, {g:306, s:.87}, {g:354, s:1} ]; // far → near
+  const ROSTER = [
+    {num:14, name:'A. Okafor',    color:'#e03a3e'},
+    {num:7,  name:'L. Lindqvist', color:'#2a6fdb'},
+    {num:21, name:'C. Moreau',    color:'#2bb673'},
+  ];
+  const SKIN = '#d9a27c';
+
+  const $ = id => document.getElementById(id);
+  const mk = (w,h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  const video = $('video'), vctx = video.getContext('2d');
+  const sensor = $('sensor'), sctx = sensor.getContext('2d');
+  const comp = $('comp'), cctx = comp.getContext('2d');
+  const axis = $('axis'), actx = axis.getContext('2d');
+  const map = $('map'), mctx = map.getContext('2d');
+  const scroller = $('scroller');
+
+  const world = mk(SW, SH), wctx = world.getContext('2d');
+  const bg = mk(SW, SH);
+  let full = mk(1, SH);
+
+  let W = 8, riders = [], N = 100, frame = 0, playing = false, fps = 24, clock0 = 252;
+  let cursorX = null, pinned = false, lastScrolled = -1;
+
+  function rng(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function shuffle(arr, r){ for (let i = arr.length - 1; i > 0; i--){ const j = r() * (i + 1) | 0; [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+  const slitX0 = () => LINE_X - Math.floor(W / 2);
+  const fmtClock = t => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; };
+
+  // ---- Static background: stands, ad wall, track, finish line, textured backdrop ----
+  function buildBackground(){
+    const c = bg.getContext('2d'), r = rng(99);
+    let g = c.createLinearGradient(0, 0, 0, 150);
+    g.addColorStop(0, '#171b23'); g.addColorStop(1, '#2b3140');
+    c.fillStyle = g; c.fillRect(0, 0, SW, 150);
+    const shirts = ['#d9d9d9','#c0392b','#2e86de','#f1c40f','#27ae60','#8e44ad','#e67e22','#ecf0f1','#34495e'];
+    const skins = ['#f1c7a5','#d9a27c','#a86f4c','#7a4a2e','#e8b896'];
+    for (let row = 0; row < 14; row++){
+      const y = 12 + row * 9.6;
+      c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(0, y + 7, SW, 1);
+      for (let x = -4; x < SW + 4; x += 6 + r() * 4){
+        if (r() < .12) continue;
+        const yy = y + r() * 2;
+        c.fillStyle = shirts[r() * shirts.length | 0]; c.fillRect(x - 3, yy + 2, 6, 6);
+        c.fillStyle = skins[r() * skins.length | 0]; c.beginPath(); c.arc(x, yy, 2.6, 0, 7); c.fill();
+      }
+    }
+    const ads = [['#14326b','#ffffff','TRACK CUP'],['#c8102e','#ffffff','FINAL'],['#101317','#f2c230','SPRINT'],['#eceef0','#14326b','VELODROME']];
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = '800 26px system-ui, sans-serif';
+    for (let i = 0, x = 0; x < SW; i++, x += 160){
+      const a = ads[i % ads.length];
+      c.fillStyle = a[0]; c.fillRect(x, 150, 160, 70);
+      c.fillStyle = a[1]; c.fillText(a[2], x + 80, 186);
+    }
+    c.fillStyle = '#0b0d10'; c.fillRect(0, 218, SW, 6);
+
+    // wooden track
+    g = c.createLinearGradient(0, 224, 0, SH);
+    g.addColorStop(0, '#a86f3d'); g.addColorStop(1, '#dca06a');
+    c.fillStyle = g; c.fillRect(0, 224, SW, SH - 224);
+    for (let y = 226; y < SH; y += 5){
+      c.fillStyle = `rgba(60,30,10,${.06 + r() * .08})`; c.fillRect(0, y, SW, 1);
+      for (let x = r() * 200; x < SW; x += 120 + r() * 200){ c.fillStyle = 'rgba(60,30,10,.2)'; c.fillRect(x, y - 4, 1, 4); }
+    }
+    c.fillStyle = '#111'; c.fillRect(0, 283, SW, 3);
+    c.fillStyle = '#c8102e'; c.fillRect(0, 329, SW, 3);
+    c.fillStyle = '#2f6fb3'; c.fillRect(0, 366, SW, SH - 366);
+
+    const x0 = slitX0();
+    // finish line painted on the track (exaggerated to the scan width)
+    c.fillStyle = '#f6f6f0'; c.fillRect(x0, 224, W, SH - 224);
+    // finish backdrop board: bands that the camera sees behind the riders
+    const bands = [[8,'#141414'],[14,'#f2c230'],[4,'#141414'],[10,'#f4f4f4'],[18,'#f2c230'],[6,'#141414'],[12,'#c8102e'],
+                   [6,'#f4f4f4'],[16,'#f2c230'],[4,'#141414'],[22,'#f4f4f4'],[8,'#141414'],[14,'#f2c230'],[18,'#141414']];
+    let y = 58;
+    for (const [h, col] of bands){ c.fillStyle = col; c.fillRect(x0, y, W, h); y += h; }
+    c.fillStyle = 'rgba(0,0,0,.35)';
+    for (let yy = 162; yy < 184; yy += 3) c.fillRect(x0, yy, W, 1); // ruler hairlines in the white band
+    // grain across the whole captured strip
+    const img = c.getImageData(x0, 58, W, SH - 58), d = img.data, gr = rng(7);
+    for (let i = 0; i < d.length; i += 4){ const n = (gr() - .5) * 38; d[i] += n; d[i+1] += n; d[i+2] += n; }
+    c.putImageData(img, x0, 58);
+  }
+
+  // ---- Riders ----
+  function newRace(seed){
+    const r = rng(seed);
+    const lanes = shuffle([0,1,2], r);
+    const offs = shuffle([0, .2 + r() * 2.2, .6 + r() * 5], r); // crossing offsets, in captures
+    riders = ROSTER.map((p, i) => {
+      const lane = LANES[lanes[i]];
+      const kmh = 57 + r() * 8;
+      const v = kmh / 3.6 * PX_PER_M * DT;            // px per capture
+      const cf = 60 + offs[i];                          // capture index when front tyre hits the line
+      const x0 = LINE_X - v * cf - FRONT * lane.s;      // rear hub x at capture 0
+      return {...p, lane, kmh, v, cf, x0, phase: r() * 6.28, crank: r() * 6.28};
+    });
+    riders.sort((a, b) => a.lane.g - b.lane.g);
+    N = Math.ceil(Math.max(...riders.map(d => (LINE_X + 12 + R * d.lane.s - d.x0) / d.v))) + 12;
+    clock0 = 251.2 + r() * 1.5;
+    frame = 0; pinned = false; cursorX = null; lastScrolled = -1;
+    $('scrub').max = N - 1;
+  }
+
+  const line = (c, a, b, x, y) => { c.beginPath(); c.moveTo(a, b); c.lineTo(x, y); c.stroke(); };
+  function knee(h, p, L1, L2){
+    const dx = p[0] - h[0], dy = p[1] - h[1], dist = Math.hypot(dx, dy), d = Math.min(dist, L1 + L2 - .01);
+    const a = (L1*L1 - L2*L2 + d*d) / (2*d), hh = Math.sqrt(Math.max(0, L1*L1 - a*a));
+    const ux = dx / dist, uy = dy / dist, bx = h[0] + a*ux, by = h[1] + a*uy;
+    const k1 = [bx - hh*uy, by + hh*ux], k2 = [bx + hh*uy, by - hh*ux];
+    return k1[0] > k2[0] ? k1 : k2;
+  }
+  function leg(c, a, near){
+    const p = [40 + 15*Math.cos(a), 4 + 15*Math.sin(a)], hip = [30, -64], k = knee(hip, p, 44, 44);
+    c.lineCap = 'round';
+    c.strokeStyle = near ? '#2a2d33' : '#1a1c20'; c.lineWidth = 3.5; line(c, 40, 4, p[0], p[1]);
+    c.strokeStyle = near ? '#16181c' : '#08090b'; c.lineWidth = 11; line(c, hip[0], hip[1], k[0], k[1]);
+    c.strokeStyle = near ? SKIN : '#a97753'; c.lineWidth = 7.5; line(c, k[0], k[1], p[0], p[1]);
+    c.strokeStyle = near ? '#f3f3f3' : '#8d939b'; c.lineWidth = 5; line(c, p[0] - 6, p[1], p[0] + 6, p[1]);
+  }
+  function discWheel(c, x, a, d){
+    c.save(); c.translate(x, 0);
+    c.fillStyle = '#2c3038'; c.beginPath(); c.arc(0, 0, R - 3, 0, 7); c.fill();
+    c.rotate(a);
+    c.fillStyle = d.color;
+    for (const s of [0, Math.PI]){ c.beginPath(); c.arc(0, 0, R - 5, s, s + .6); c.arc(0, 0, 9, s + .6, s, true); c.closePath(); c.fill(); }
+    c.fillStyle = '#f2f2f2'; c.beginPath(); c.arc(0, 0, R - 5, 1.5, 1.68); c.arc(0, 0, 9, 1.68, 1.5, true); c.closePath(); c.fill();
+    c.restore();
+    c.strokeStyle = '#0d0e10'; c.lineWidth = 4; c.beginPath(); c.arc(x, 0, R - 2, 0, 7); c.stroke();
+    c.fillStyle = '#9aa0a8'; c.beginPath(); c.arc(x, 0, 3.5, 0, 7); c.fill();
+  }
+  function triWheel(c, x, a, d){
+    c.save(); c.translate(x, 0);
+    c.strokeStyle = '#3a3f48'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, R - 5, 0, 7); c.stroke();
+    for (let k = 0; k < 3; k++){
+      c.save(); c.rotate(a + k * 2.0944);
+      c.fillStyle = k === 0 ? d.color : '#1d2026';
+      c.beginPath(); c.moveTo(0, -4.5); c.lineTo(R - 6, -2.5); c.lineTo(R - 6, 2.5); c.lineTo(0, 4.5); c.closePath(); c.fill();
+      c.restore();
+    }
+    c.restore();
+    c.strokeStyle = '#0d0e10'; c.lineWidth = 4; c.beginPath(); c.arc(x, 0, R - 2, 0, 7); c.stroke();
+    c.fillStyle = '#9aa0a8'; c.beginPath(); c.arc(x, 0, 4, 0, 7); c.fill();
+  }
+  function drawRider(c, d, f){
+    const s = d.lane.s, hx = d.x0 + d.v * f, travel = d.v * f / s;
+    const wa = travel / R + d.phase, ca = travel / 38 + d.crank;
+    c.save(); c.translate(hx, d.lane.g - R * s); c.scale(s, s);
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.fillStyle = 'rgba(20,10,0,.28)'; c.beginPath(); c.ellipse(52, R + 1, 78, 4.5, 0, 0, 7); c.fill();
+    leg(c, ca + Math.PI, false);
+    discWheel(c, 0, wa, d); triWheel(c, WB, wa, d);
+    // frame
+    c.strokeStyle = '#eef0f3'; c.lineWidth = 4.5;
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(40, 4); c.lineTo(30, -50); c.closePath();
+    c.moveTo(30, -50); c.lineTo(86, -50); c.lineTo(WB, 0);
+    c.moveTo(40, 4); c.lineTo(84, -42); c.stroke();
+    c.strokeStyle = d.color; c.lineWidth = 2; line(c, 52, -9, 72, -30);
+    c.strokeStyle = '#cfd3d8'; c.lineWidth = 3; line(c, 30, -50, 28, -60);
+    c.strokeStyle = '#15171b'; c.lineWidth = 4; line(c, 20, -61, 37, -61);
+    c.lineWidth = 3.2; c.beginPath(); c.moveTo(86, -50); c.lineTo(88, -55); c.lineTo(97, -55);
+    c.quadraticCurveTo(106, -50, 101, -41); c.lineTo(95, -41); c.stroke();
+    c.strokeStyle = '#8b9099'; c.lineWidth = 2; c.beginPath(); c.arc(40, 4, 10, 0, 7); c.stroke();
+    leg(c, ca, true);
+    // torso, number, arm, head
+    c.strokeStyle = d.color; c.lineWidth = 18; line(c, 30, -66, 80, -76);
+    c.fillStyle = '#16181c'; c.beginPath(); c.arc(30, -64, 10, 0, 7); c.fill();
+    c.save(); c.translate(48, -76); c.rotate(Math.atan2(-10, 50));
+    c.fillStyle = '#fff'; c.fillRect(-9, -6, 18, 11);
+    c.fillStyle = '#111'; c.font = 'bold 9px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(d.num, 0, 0);
+    c.restore();
+    c.strokeStyle = d.color; c.lineWidth = 7.5; line(c, 80, -74, 90, -60);
+    c.strokeStyle = SKIN; c.lineWidth = 6; line(c, 90, -60, 99, -46);
+    c.fillStyle = SKIN; c.beginPath(); c.arc(97, -82, 5.5, 0, 7); c.fill();
+    c.fillStyle = d.color; c.beginPath(); c.moveTo(70, -85); c.quadraticCurveTo(82, -101, 98, -92);
+    c.quadraticCurveTo(105, -86, 100, -83); c.lineTo(84, -80); c.closePath(); c.fill();
+    c.fillStyle = '#1b1d22'; c.fillRect(96, -87, 7, 4);
+    c.restore();
+  }
+
+  function renderWorld(f){
+    wctx.drawImage(bg, 0, 0);
+    for (const d of riders) drawRider(wctx, d, f);
+  }
+
+  // Render every capture once and stack the scan-line slices: this is the real line-scan process.
+  function compose(){
+    full = mk(N * W, SH);
+    const fc = full.getContext('2d'), x0 = slitX0();
+    for (let f = 0; f < N; f++){
+      renderWorld(f);
+      fc.drawImage(world, x0, 0, W, SH, (N - 1 - f) * W, 0, W, SH);
+    }
+    comp.width = N * W; axis.width = N * W;
+  }
+
+  // ---- Views ----
+  function drawVideo(){
+    const x0 = slitX0();
+    vctx.drawImage(world, 0, 0);
+    if ($('dim').checked){
+      vctx.fillStyle = 'rgba(6,8,12,.62)';
+      vctx.fillRect(0, 0, x0, SH); vctx.fillRect(x0 + W, 0, SW - x0 - W, SH);
+    }
+    if ($('showSlit').checked){
+      vctx.strokeStyle = '#ffd23f'; vctx.lineWidth = 2; vctx.setLineDash([6, 4]);
+      vctx.strokeRect(x0 - 2, 3, W + 4, SH - 6); vctx.setLineDash([]);
+      vctx.font = '700 11px ui-monospace, Menlo, monospace'; vctx.textBaseline = 'middle'; vctx.textAlign = 'left';
+      const label = `SCAN LINE ${W}px (real: 1px)`, tw = vctx.measureText(label).width;
+      vctx.fillStyle = '#ffd23f'; vctx.fillRect(x0 + W + 6, 10, tw + 12, 18);
+      vctx.fillStyle = '#1b1600'; vctx.fillText(label, x0 + W + 12, 19);
+    }
+    vctx.font = '600 12px ui-monospace, Menlo, monospace'; vctx.textAlign = 'left'; vctx.textBaseline = 'middle';
+    const tc = `${fmtClock(clock0 + frame * DT)}  #${String(frame).padStart(3, '0')}`;
+    vctx.fillStyle = 'rgba(0,0,0,.6)'; vctx.fillRect(10, 10, vctx.measureText(tc).width + 30, 20);
+    vctx.fillStyle = playing ? '#ff4d4d' : '#9aa0a8'; vctx.beginPath(); vctx.arc(20, 20, 4, 0, 7); vctx.fill();
+    vctx.fillStyle = '#fff'; vctx.fillText(tc, 30, 20);
+  }
+
+  function drawSensor(){
+    sctx.imageSmoothingEnabled = false;
+    sctx.drawImage(world, slitX0(), 0, W, SH, 0, 0, sensor.width, SH);
+    sctx.fillStyle = 'rgba(0,0,0,.28)';
+    for (let i = 1; i < W; i++) sctx.fillRect(Math.round(i * sensor.width / W), 0, 1, SH);
+  }
+
+  function drawComposite(){
+    const cw = N * W, head = (N - 1 - frame) * W;
+    cctx.fillStyle = '#1d2027'; cctx.fillRect(0, 0, cw, SH);
+    cctx.strokeStyle = 'rgba(255,255,255,.05)'; cctx.lineWidth = 1;
+    for (let x = -SH; x < head; x += 14) line(cctx, x, SH, x + SH, 0);
+    cctx.fillStyle = '#1d2027'; cctx.fillRect(head, 0, cw - head, SH);
+    cctx.drawImage(full, head, 0, cw - head, SH, head, 0, cw - head, SH);
+    if (head > 160){
+      cctx.fillStyle = 'rgba(255,255,255,.35)'; cctx.font = '600 12px system-ui, sans-serif';
+      cctx.textAlign = 'center'; cctx.textBaseline = 'middle'; cctx.fillText('not exposed yet', head / 2, SH / 2);
+    }
+    if (frame < N - 1){ cctx.fillStyle = '#ffd23f'; cctx.fillRect(head - 1, 0, 2, SH); }
+
+    // official crossing marks for riders already over the line
+    for (const d of riders){
+      if (frame < Math.ceil(d.cf)) continue;
+      const x = (N - .5 - d.cf) * W;
+      cctx.fillStyle = d.color; cctx.fillRect(x - 1, 0, 2, 24); cctx.fillRect(x - 1, SH - 24, 2, 24);
+      cctx.font = '700 11px ui-monospace, Menlo, monospace'; cctx.textAlign = 'left'; cctx.textBaseline = 'middle';
+      const lab = String(d.num), tw = cctx.measureText(lab).width;
+      cctx.fillRect(x + 1, 0, tw + 8, 15 + 0); cctx.fillStyle = '#fff'; cctx.fillText(lab, x + 5, 8);
+    }
+
+    if (cursorX !== null){
+      cctx.fillStyle = pinned ? '#ffd23f' : 'rgba(255,255,255,.85)';
+      cctx.fillRect(Math.round(cursorX), 0, 1, SH);
+      const lab = fmtClock(timeAtX(cursorX));
+      cctx.font = '600 11px ui-monospace, Menlo, monospace'; cctx.textAlign = 'left'; cctx.textBaseline = 'middle';
+      const tw = cctx.measureText(lab).width, lx = cursorX + tw + 14 > cw ? cursorX - tw - 12 : cursorX + 4;
+      cctx.fillStyle = 'rgba(0,0,0,.7)'; cctx.fillRect(lx, SH - 44, tw + 8, 16);
+      cctx.fillStyle = '#fff'; cctx.fillText(lab, lx + 4, SH - 36);
+    }
+  }
+
+  function drawAxis(){
+    const cw = N * W, muted = cssv('--muted'), ink = cssv('--ink'), panel = cssv('--panel');
+    actx.fillStyle = panel; actx.fillRect(0, 0, cw, 34);
+    actx.fillStyle = muted; actx.font = '11px ui-monospace, Menlo, monospace'; actx.textBaseline = 'top'; actx.textAlign = 'center';
+    const labelStep = 10 * Math.ceil(80 / (10 * W));
+    for (let f = 0; f < N; f++){
+      if (f % 10) continue;
+      const x = (N - .5 - f) * W, major = f % labelStep === 0;
+      actx.fillRect(Math.round(x), 0, 1, major ? 8 : 5);
+      if (major && x > 80 && x < cw - 30){ actx.fillStyle = ink; actx.fillText(fmtClock(clock0 + f * DT), x, 12); actx.fillStyle = muted; }
+    }
+    actx.textAlign = 'left'; actx.fillText('← time', 6, 12);
+  }
+
+  function drawMap(){
+    const w = map.width, h = map.height, sx = w / SW, ink = cssv('--ink'), muted = cssv('--muted');
+    mctx.fillStyle = cssv('--chip'); mctx.fillRect(0, 0, w, h);
+    mctx.fillStyle = '#0b0d10'; mctx.fillRect(0, 26, w, 6);
+    mctx.fillStyle = '#c99158'; mctx.fillRect(0, 32, w, 100);
+    mctx.fillStyle = '#2f6fb3'; mctx.fillRect(0, 124, w, 8);
+    const lx = LINE_X * sx;
+    mctx.fillStyle = '#f6f6f0'; mctx.fillRect(lx - 1.5, 32, 3, 100);
+    mctx.fillStyle = '#f2c230'; mctx.fillRect(lx - 4, 20, 8, 7);
+    mctx.strokeStyle = '#f2c230'; mctx.lineWidth = 1.5; mctx.setLineDash([4, 3]); line(mctx, lx, 152, lx, 28); mctx.setLineDash([]);
+    mctx.fillStyle = ink; mctx.fillRect(lx - 8, 152, 16, 11);
+    mctx.beginPath(); mctx.moveTo(lx - 4, 152); mctx.lineTo(lx + 4, 152); mctx.lineTo(lx, 145); mctx.closePath(); mctx.fill();
+    const laneY = {262: 52, 306: 82, 354: 112};
+    for (const d of riders){
+      const hx = d.x0 + d.v * frame, s = d.lane.s, y = laneY[d.lane.g];
+      const a = (hx - R * s) * sx, b = (hx + FRONT * s) * sx;
+      mctx.fillStyle = '#1d2026'; mctx.fillRect(a, y - 1, b - a, 2);
+      mctx.fillStyle = d.color; mctx.beginPath(); mctx.ellipse((a + b) / 2 + 4, y, (b - a) * .28, 5, 0, 0, 7); mctx.fill();
+    }
+    mctx.fillStyle = muted; mctx.font = '11px system-ui, sans-serif'; mctx.textBaseline = 'middle';
+    mctx.textAlign = 'left'; mctx.fillText('line-scan camera', lx + 14, 158);
+    mctx.fillText('backdrop', lx + 10, 14);
+    mctx.textAlign = 'right'; mctx.fillText('top view →', w - 8, 158);
+  }
+
+  function updateUI(){
+    $('scrub').value = frame;
+    $('clock').textContent = fmtClock(clock0 + frame * DT);
+    $('frameRead').textContent = `capture ${frame} / ${N - 1}`;
+    $('playLabel').textContent = playing ? 'Pause' : 'Play';
+    $('playIcon').innerHTML = playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4v16l13-8z"/>';
+    $('cursorRead').textContent = cursorX === null ? 'cursor —' : `cursor ${fmtClock(timeAtX(cursorX))}${pinned ? ' (pinned)' : ''}`;
+
+    const crossed = riders.filter(d => frame >= Math.ceil(d.cf)).sort((a, b) => a.cf - b.cf);
+    const rest = riders.filter(d => !crossed.includes(d)).sort((a, b) => a.num - b.num);
+    const win = crossed[0];
+    $('results').innerHTML = [...crossed, ...rest].map(d => {
+      const done = crossed.includes(d), pos = crossed.indexOf(d) + 1;
+      const t = clock0 + d.cf * DT, gap = done && d !== win ? `+${((d.cf - win.cf) * DT).toFixed(3)}` : (done ? '—' : '');
+      return `<tr>
+        <td class="pos">${done ? pos : '<span class="pending">·</span>'}</td>
+        <td class="num">${d.num}</td>
+        <td><span class="sw" style="background:${d.color}"></span>${d.name}</td>
+        <td class="num">${d.kmh.toFixed(1)} km/h</td>
+        <td class="num">${d.v.toFixed(2)} px</td>
+        <td class="num">${Math.round(W / d.v * 100)}%</td>
+        <td class="num">${done ? fmtClock(t) : '<span class="pending">on track</span>'}</td>
+        <td class="num">${gap}</td></tr>`;
+    }).join('');
+  }
+
+  function timeAtX(x){ return clock0 + (N - .5 - x / W) * DT; }
+
+  function keepHeadVisible(){
+    if (lastScrolled === frame) return;
+    lastScrolled = frame;
+    const head = (N - 1 - frame) * W, left = scroller.scrollLeft, vw = scroller.clientWidth;
+    if (head < left + 40 || head > left + vw - 40) scroller.scrollLeft = head - vw * (playing ? .3 : .5);
+  }
+
+  function render(){
+    renderWorld(frame);
+    drawVideo(); drawSensor(); drawComposite(); drawAxis(); drawMap(); updateUI(); keepHeadVisible();
+  }
+
+  // ---- Playback ----
+  let acc = 0, last = 0;
+  function loop(ts){
+    if (playing){
+      acc += (ts - last) * fps / 1000;
+      let changed = false;
+      while (acc >= 1){
+        acc -= 1;
+        if (frame < N - 1){ frame++; changed = true; } else { playing = false; break; }
+      }
+      if (changed || !playing) render();
+    }
+    last = ts;
+    requestAnimationFrame(loop);
+  }
+  function setFrame(f){ frame = Math.max(0, Math.min(N - 1, f)); render(); }
+  function togglePlay(){
+    if (!playing && frame >= N - 1) frame = 0;
+    playing = !playing; acc = 0; render();
+  }
+  function rebuild(){ buildBackground(); compose(); lastScrolled = -1; render(); }
+
+  // ---- Wiring ----
+  $('play').onclick = togglePlay;
+  video.onclick = togglePlay;
+  $('back').onclick = e => { playing = false; setFrame(frame - (e.shiftKey ? 10 : 1)); };
+  $('fwd').onclick = e => { playing = false; setFrame(frame + (e.shiftKey ? 10 : 1)); };
+  $('restart').onclick = () => { playing = false; setFrame(0); };
+  $('scrub').oninput = e => { playing = false; setFrame(+e.target.value); };
+  $('speed').onchange = e => { fps = +e.target.value; };
+  $('showSlit').onchange = render;
+  $('dim').onchange = render;
+  $('width').oninput = e => { W = +e.target.value; $('widthOut').textContent = `${W} px`; cursorX = null; pinned = false; rebuild(); };
+  $('newRace').onclick = () => { playing = false; newRace((Math.random() * 1e9) | 0); rebuild(); };
+
+  const compX = e => { const r = comp.getBoundingClientRect(); return (e.clientX - r.left) * comp.width / r.width; };
+  comp.addEventListener('mousemove', e => { if (pinned) return; cursorX = compX(e); render(); });
+  comp.addEventListener('mouseleave', () => { if (pinned) return; cursorX = null; render(); });
+  comp.addEventListener('click', e => {
+    const x = compX(e);
+    if (pinned && cursorX !== null && Math.abs(x - cursorX) < 3){ pinned = false; render(); return; }
+    cursorX = x; pinned = true; playing = false;
+    lastScrolled = Math.round(N - .5 - x / W); // the clicked spot is already in view
+    setFrame(lastScrolled);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    const step = e.shiftKey ? 10 : 1;
+    if (e.key === ' '){ e.preventDefault(); togglePlay(); }
+    else if (e.key === 'ArrowRight'){ e.preventDefault(); playing = false; setFrame(frame + step); }
+    else if (e.key === 'ArrowLeft'){ e.preventDefault(); playing = false; setFrame(frame - step); }
+    else if (e.key === 'Home'){ playing = false; setFrame(0); }
+    else if (e.key === 'End'){ playing = false; setFrame(N - 1); }
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+  newRace(20261008);
+  rebuild();
+  // Open on a moment where the photo already shows something.
+  setFrame(Math.min(N - 1, Math.ceil(Math.max(...riders.map(d => d.cf))) + 18));
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
